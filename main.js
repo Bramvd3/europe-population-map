@@ -79,12 +79,11 @@ function formatAbsLabel(v) {
 }
 
 // ---- Map setup ------------------------------------------------------------
-// OpenFreeMap Positron — community-maintained OSM-derived vector tiles served
-// from Cloudflare's CDN. Free, no API key, and *much* faster on zoom/pan than
-// CARTO's public endpoint (which is the slowdown CORRECTIV avoids with their
-// MapTiler hosting).  We can still slot our choropleth between the basemap
-// layers via beforeId.
-const MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
+// OpenFreeMap Liberty — same fast Cloudflare-hosted vector tiles as Positron,
+// but with a slightly richer palette: blue sea (rgb 158,189,255), blue river
+// lines (#a0c8f0), pastel-green parks and woods. Subtle enough that the
+// choropleth still pops on top, lively enough to feel like a real map.
+const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 // In OpenFreeMap, country borders are a single layer (`boundary_2` = OSM
 // admin level 2). No separate "halo" sublayer to hide.
 const BASE_COUNTRY_BORDER_LAYER = "boundary_2";
