@@ -90,14 +90,15 @@ const MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
 const BASE_COUNTRY_BORDER_LAYER = "boundary_2";
 
 async function init() {
-  // Load LAU geojson + per-region data in parallel. (We used to also fetch
-  // countries.geojson for a custom border overlay; the vector basemap renders
-  // those above the choropleth for us now, so it's gone.)
-  const [lauGeo, dataJson] = await Promise.all([
-    fetch("data/lau.geojson").then(r => r.json()),
-    fetch("data/data.json").then(r => r.json()),
-  ]);
-  regionData = dataJson;
+  // Register the PMTiles protocol once, so MapLibre can fetch tile bytes via
+  // HTTP range requests against our static .pmtiles file instead of
+  // downloading + tessellating a 50 MB GeoJSON up front.
+  const protocol = new pmtiles.Protocol();
+  maplibregl.addProtocol("pmtiles", protocol.tile);
+
+  // Per-region populations + names + sparkline + first/last endpoints. The
+  // geometry lives in the .pmtiles file referenced from the source below.
+  regionData = await fetch("data/data.json").then(r => r.json());
   dataByLocation = new Map(regionData.locations.map((loc, i) => [loc, i]));
 
   map = new maplibregl.Map({
@@ -110,16 +111,6 @@ async function init() {
     attributionControl: { compact: true },
   });
 
-  // MapLibre's setFeatureState requires features to be addressable by ID.
-  // Our GeoJSON has the gisco_id at the top-level `id` field as a string, but
-  // MapLibre's GeoJSON source ignores non-numeric top-level IDs unless we
-  // promote a property. So we copy each feature's top-level id into a
-  // properties.gisco_id and tell the source to promote that field.
-  lauGeo.features.forEach(f => {
-    f.properties = f.properties || {};
-    f.properties.gisco_id = f.id;
-  });
-
   map.on("load", () => {
     // Darken the basemap's country border to dark grey, like CORRECTIV's.
     if (map.getLayer(BASE_COUNTRY_BORDER_LAYER)) {
@@ -128,17 +119,14 @@ async function init() {
     }
 
     map.addSource("lau", {
-      type: "geojson",
-      data: lauGeo,
+      type: "vector",
+      // pmtiles:// protocol intercepted by the library registered above;
+      // resolves to the static .pmtiles file in /data/. The browser fetches
+      // only the byte ranges for the tiles currently in view, not the whole
+      // archive — which is what makes this much snappier than the GeoJSON
+      // approach where the entire 50 MB had to be downloaded and tessellated.
+      url: "pmtiles://data/lau.pmtiles",
       promoteId: "gisco_id",
-      // Our LAU geometries are already simplified to ~250 m in preprocess.py
-      // (topology-aware per country, so no sliver artefacts). We do NOT want
-      // MapLibre to simplify them further per tile — that's what causes the
-      // shapes to "snap" to a coarser version during rapid zoom changes.
-      // tolerance: 0 disables Douglas-Peucker simplification; buffer: 256
-      // keeps polygons fully drawn across tile seams.
-      tolerance: 0,
-      buffer: 256,
     });
     // The basemap's country-border layer exists in the loaded style; if it's
     // present we pass its id as `beforeId` so MapLibre inserts our choropleth
@@ -151,6 +139,7 @@ async function init() {
       id: "lau-fill",
       type: "fill",
       source: "lau",
+      "source-layer": "lau",   // matches `-l lau` passed to tippecanoe
       paint: {
         "fill-color": [
           "case",
@@ -171,6 +160,7 @@ async function init() {
       id: "lau-outline",
       type: "line",
       source: "lau",
+      "source-layer": "lau",
       paint: {
         "line-color": "rgba(255,255,255,0.75)",
         "line-width": [
@@ -189,6 +179,7 @@ async function init() {
       id: "lau-hover",
       type: "line",
       source: "lau",
+      "source-layer": "lau",
       paint: {
         "line-color": "#222",
         "line-width": 2,
@@ -213,7 +204,7 @@ function refreshBins() {
     const d = computeDelta(i);
     const b = binIndex(d, bins);
     map.setFeatureState(
-      { source: "lau", id: locations[i] },
+      { source: "lau", sourceLayer: "lau", id: locations[i] },
       { bin: b }
     );
   }
@@ -278,15 +269,15 @@ function attachInteractions() {
     const id = e.features[0].id;
     if (id === hoveredId) return;
     if (hoveredId != null) {
-      map.setFeatureState({ source: "lau", id: hoveredId }, { hover: false });
+      map.setFeatureState({ source: "lau", sourceLayer: "lau", id: hoveredId }, { hover: false });
     }
     hoveredId = id;
-    map.setFeatureState({ source: "lau", id }, { hover: true });
+    map.setFeatureState({ source: "lau", sourceLayer: "lau", id }, { hover: true });
     map.getCanvas().style.cursor = "pointer";
   });
   map.on("mouseleave", "lau-fill", () => {
     if (hoveredId != null) {
-      map.setFeatureState({ source: "lau", id: hoveredId }, { hover: false });
+      map.setFeatureState({ source: "lau", sourceLayer: "lau", id: hoveredId }, { hover: false });
       hoveredId = null;
     }
     map.getCanvas().style.cursor = "";
